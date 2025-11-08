@@ -4,7 +4,7 @@ const cheerio = require('cheerio');
 const path = require('path');
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001; // ← PORT now configurable for tests/CI
 
 // Middleware to parse request bodies
 app.use(express.json());
@@ -20,7 +20,7 @@ app.get('/', (req, res) => {
 app.post('/fetch', async (req, res) => {
   try {
     const { url } = req.body;
-    
+
     if (!url) {
       return res.status(400).json({ error: 'URL is required' });
     }
@@ -31,53 +31,51 @@ app.post('/fetch', async (req, res) => {
 
     // Use cheerio to parse HTML and selectively replace text content, not URLs
     const $ = cheerio.load(html);
-    
-    // Function to replace text but skip URLs and attributes
-    function replaceYaleWithFale(i, el) {
-      if ($(el).children().length === 0 || $(el).text().trim() !== '') {
-        // Get the HTML content of the element
-        let content = $(el).html();
-        
-        // Only process if it's a text node
-        if (content && $(el).children().length === 0) {
-          // Replace Yale with Fale in text content only
-          content = content.replace(/Yale/g, 'Fale').replace(/yale/g, 'fale');
-          $(el).html(content);
+
+    // Replace text nodes only (skip attributes/URLs)
+    $('body *')
+      .contents()
+      .filter(function () {
+        return this.nodeType === 3; // Text nodes only
+      })
+      .each(function () {
+        const text = $(this).text();
+        const newText = text
+          .replace(/YALE/g, 'FALE')
+          .replace(/Yale/g, 'Fale')
+          .replace(/yale/g, 'fale');
+        if (text !== newText) {
+          $(this).replaceWith(newText);
         }
-      }
-    }
-    
-    // Process text nodes in the body
-    $('body *').contents().filter(function() {
-      return this.nodeType === 3; // Text nodes only
-    }).each(function() {
-      // Replace text content but not in URLs or attributes
-      const text = $(this).text();
-      const newText = text.replace(/Yale/g, 'Fale').replace(/yale/g, 'fale');
-      if (text !== newText) {
-        $(this).replaceWith(newText);
-      }
-    });
-    
+      });
+
     // Process title separately
-    const title = $('title').text().replace(/Yale/g, 'Fale').replace(/yale/g, 'fale');
+    const title = $('title')
+      .text()
+      .replace(/YALE/g, 'FALE')
+      .replace(/Yale/g, 'Fale')
+      .replace(/yale/g, 'fale');
     $('title').text(title);
-    
-    return res.json({ 
-      success: true, 
+
+    return res.json({
+      success: true,
       content: $.html(),
-      title: title,
-      originalUrl: url
+      title: title || '',
+      originalUrl: url,
     });
   } catch (error) {
     console.error('Error fetching URL:', error.message);
-    return res.status(500).json({ 
-      error: `Failed to fetch content: ${error.message}` 
+    return res.status(500).json({
+      error: `Failed to fetch content: ${error.message}`,
     });
   }
 });
 
-// Start the server
-app.listen(PORT, () => {
-  console.log(`Faleproxy server running at http://localhost:${PORT}`);
-});
+// Only listen when run directly (not when required by tests)
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Faleproxy server running at http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;
